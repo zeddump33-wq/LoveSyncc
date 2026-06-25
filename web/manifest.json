@@ -1,0 +1,44 @@
+{
+  "name": "LoveSync",
+  "short_name": "LoveSync",
+  "description": "Two Hearts, One App - A modern couple app",
+  "start_url": ".",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#1A1A2E",
+  "theme_color": "#E91E63",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["social", "lifestyle"],
+  "lang": "en",
+  "dir": "ltr",
+  "iarc_rating_id": "N/A",
+  "screenshots": [],
+  "prefer_related_applications": false
+}

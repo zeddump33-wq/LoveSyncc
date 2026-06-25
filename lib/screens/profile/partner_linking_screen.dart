@@ -133,16 +133,16 @@ class _PartnerLinkingScreenState extends State<PartnerLinkingScreen> {
       final auth = context.read<AuthProvider>();
       if (auth.user?.coupleId == null) return;
       try {
-        final joined = await FirestoreService.getJoiningPartner(
-          auth.user!.coupleId!,
-          auth.user!.id,
-        );
-        if (joined != null && mounted) {
+        final coupleDoc = await FirestoreService.getCouple(auth.user!.coupleId!);
+        if (coupleDoc != null &&
+            coupleDoc['partner2Id'] != null &&
+            coupleDoc['status'] == 'active' &&
+            mounted) {
           _pollingActive = false;
           _pollTimer?.cancel();
           // Update local DB and provider with the joined partner data
           final now = DateTime.now().toIso8601String();
-          final joinedUserId = joined['id'] as String;
+          final joinedUserId = coupleDoc['partner2Id'] as String;
           await DatabaseService.update('couples', {
             'partner2Id': joinedUserId,
             'status': 'active',
@@ -339,10 +339,10 @@ class _PartnerLinkingScreenState extends State<PartnerLinkingScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Invite Code',
                           prefixIcon: Icon(Icons.vpn_key),
-                          hintText: 'Enter 8-character code',
+                          hintText: 'Enter 12-character code',
                         ),
                         textCapitalization: TextCapitalization.characters,
-                        maxLength: 8,
+                        maxLength: 12,
                       ),
                       const SizedBox(height: 16),
                       GradientButton(text: 'Connect', isLoading: _isJoining, onPressed: _joinCouple),

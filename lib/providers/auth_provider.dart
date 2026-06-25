@@ -57,6 +57,21 @@ class AuthProvider extends ChangeNotifier {
     return success;
   }
 
+  Future<bool> registerWithEmail(String name, String email, String password) async {
+    _isLoading = true;
+    notifyListeners();
+
+    final success = await AuthService.registerWithEmail(name, email, password);
+    if (success) {
+      _user = AuthService.currentUser;
+      _isLoggedIn = true;
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return success;
+  }
+
   Future<bool> loginWithGoogle() async {
     _isLoading = true;
     notifyListeners();

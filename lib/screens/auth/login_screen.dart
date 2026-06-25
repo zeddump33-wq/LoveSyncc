@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../core/constants/theme_constants.dart';
 import '../../core/utils/validators.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/gradient_button.dart';
+import '../../core/widgets/responsive_shell.dart';
 import '../../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -41,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login failed. Please try again.')),
+        const SnackBar(content: Text('Invalid email or password.')),
       );
     }
   }
@@ -57,7 +59,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Check if there's an existing local user
     final hasExisting = await provider.restoreSession();
     if (hasExisting && mounted) {
       final action = await showDialog<String>(
@@ -76,7 +77,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
 
-    // Google sign-in failed — offer offline mode instead
     if (!mounted) return;
     final offline = await showDialog<bool>(
       context: context,
@@ -89,8 +89,14 @@ class _LoginScreenState extends State<LoginScreen> {
           'Would you like to continue in offline mode instead?',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Continue Offline')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continue Offline'),
+          ),
         ],
       ),
     );
@@ -99,7 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final name = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _GoogleNameDialog(),
+      builder: (_) => const _GoogleNameDialog(),
     );
 
     if (name == null || !mounted) return;
@@ -107,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
     success = await provider.createLocalAccount(name);
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Running in offline mode — Google sign-in not configured')),
+        const SnackBar(content: Text('Running in offline mode - Google sign-in not configured')),
       );
       Navigator.pushReplacementNamed(context, '/home');
     }
@@ -129,111 +135,117 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(ThemeConstants.screenPadding),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  const SizedBox(height: 40),
-                  Icon(
-                    Icons.favorite,
-                    size: 64,
-                    color: ThemeConstants.primaryColor,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Welcome Back',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Sign in to continue with your partner',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 40),
-                  GlassCard(
-                    child: Column(
-                      children: [
-                        TextFormField(
-                          controller: _emailController,
-                          decoration: const InputDecoration(
-                            labelText: 'Email',
-                            prefixIcon: Icon(Icons.email_outlined),
+          child: ResponsiveShell(
+            maxContentWidth: 520,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(ThemeConstants.screenPadding),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 40),
+                    Icon(
+                      Icons.favorite,
+                      size: 64,
+                      color: ThemeConstants.primaryColor,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Welcome Back',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
                           ),
-                          keyboardType: TextInputType.emailAddress,
-                          validator: Validators.email,
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _passwordController,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock_outlined),
-                            suffixIcon: IconButton(
-                              icon: Icon(_obscurePassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility),
-                              onPressed: () => setState(
-                                  () => _obscurePassword = !_obscurePassword),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Sign in to continue with your partner',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 40),
+                    GlassCard(
+                      child: Column(
+                        children: [
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(Icons.email_outlined),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            validator: Validators.email,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outlined),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                ),
+                                onPressed: () {
+                                  setState(() => _obscurePassword = !_obscurePassword);
+                                },
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            validator: Validators.password,
+                          ),
+                          const SizedBox(height: 24),
+                          Consumer<AuthProvider>(
+                            builder: (_, provider, __) => GradientButton(
+                              text: 'Sign In',
+                              isLoading: provider.isLoading,
+                              onPressed: _loginWithEmail,
                             ),
                           ),
-                          obscureText: _obscurePassword,
-                          validator: Validators.password,
-                        ),
-                        const SizedBox(height: 24),
-                        Consumer<AuthProvider>(
-                          builder: (_, provider, __) => GradientButton(
-                            text: 'Sign In',
-                            isLoading: provider.isLoading,
-                            onPressed: _loginWithEmail,
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            'OR',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                         ),
+                        const Expanded(child: Divider()),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      const Expanded(child: Divider()),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(
-                          'OR',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                    const SizedBox(height: 24),
+                    OutlinedButton.icon(
+                      onPressed: _loginWithGoogle,
+                      icon: const Icon(Icons.g_mobiledata, size: 28),
+                      label: const Text('Continue with Google'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 56),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(ThemeConstants.borderRadius),
+                        ),
+                        side: BorderSide(
+                          color: isDark ? Colors.white24 : Colors.black12,
                         ),
                       ),
-                      const Expanded(child: Divider()),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  OutlinedButton.icon(
-                    onPressed: _loginWithGoogle,
-                    icon: const Icon(Icons.g_mobiledata, size: 28),
-                    label: const Text('Continue with Google'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 56),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(ThemeConstants.borderRadius),
-                      ),
-                      side: BorderSide(
-                        color: isDark ? Colors.white24 : Colors.black12,
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () => Navigator.pushNamed(context, '/register'),
+                      child: const Text(
+                        "Don't have an account? Sign Up",
+                        style: TextStyle(color: ThemeConstants.primaryColor),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () => Navigator.pushNamed(context, '/register'),
-                    child: const Text(
-                      "Don't have an account? Sign Up",
-                      style: TextStyle(color: ThemeConstants.primaryColor),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -300,7 +312,9 @@ class _AccountChoiceDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Account Found'),
-      content: Text('Welcome back, $name!\n\nWould you like to continue with this account or start a new one?'),
+      content: Text(
+        'Welcome back, $name!\n\nWould you like to continue with this account or start a new one?',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, 'continue'),

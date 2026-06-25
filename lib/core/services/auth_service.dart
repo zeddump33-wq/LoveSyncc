@@ -1,11 +1,13 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
+
 import '../../models/user_model.dart';
+import '../utils/encryption_utils.dart';
 import 'database_service.dart';
 import 'firestore_service.dart';
-import '../utils/encryption_utils.dart';
 import 'storage_service.dart';
 
 class AuthService {
@@ -26,78 +28,56 @@ class AuthService {
     return UserModel.fromMap(jsonDecode(json));
   }
 
-  static Future<bool> createLocalAccount(String name) async {
-    try {
-      // Sign in anonymously so Firestore security rules pass
-      try {
-        await _auth.signInAnonymously();
-      } catch (e) {
-        print('Anonymous auth failed (non-fatal): $e');
-      }
-
-      final existingId = StorageService.getString('current_user_id');
-      if (existingId != null) {
-        final existing = await DatabaseService.getById('users', existingId);
-        if (existing != null) {
-          _currentUser = UserModel.fromMap(existing);
-          return true;
-        }
-      }
-
-      // Use Firebase UID so Firestore security rules (auth.uid checks) pass
-      final id = _auth.currentUser?.uid ?? EncryptionUtils.generateId();
-      final now = DateTime.now().toIso8601String();
-      final user = UserModel(
-        id: id,
-        name: name,
-        createdAt: now,
-        updatedAt: now,
-      );
-      await DatabaseService.insert('users', user.toMap());
-      _currentUser = user;
-      _saveUserToStorage();
-      await StorageService.setString('current_user_id', id);
-
-      await _autoCreateCouple(id, now);
-      return true;
-    } catch (e) {
-      return false;
-    }
+  static Future<void> _storeCurrentUser(UserModel user) async {
+    _currentUser = user;
+    await DatabaseService.insert('users', user.toMap());
+    await StorageService.setString('current_user_id', user.id);
+    _saveUserToStorage();
   }
 
-  static Future<void> _autoCreateCouple(String userId, String now) async {
+  static Future<void> _createOrRefreshCouple(String userId, String now) async {
     final coupleId = EncryptionUtils.generateId();
     final inviteCode = EncryptionUtils.generateInviteCode();
+    final anniversary = DateTime.now().toIso8601String().split('T')[0];
     final coupleData = {
       'id': coupleId,
       'partner1Id': userId,
       'partner2Id': null,
-      'anniversaryDate': DateTime.now().toIso8601String().split('T')[0],
+      'anniversaryDate': anniversary,
       'status': 'solo',
       'inviteCode': inviteCode,
       'createdAt': now,
       'updatedAt': now,
     };
+
     try {
       await FirestoreService.createCouple(coupleId, coupleData);
     } catch (e) {
-      print('Firestore createCouple in _autoCreateCouple failed: $e');
+      print('Firestore createCouple failed: $e');
     }
+
     await DatabaseService.insert('couples', coupleData);
-    await DatabaseService.update('users', {'coupleId': coupleId, 'inviteCode': inviteCode, 'updatedAt': now}, userId);
+    await DatabaseService.update('users', {
+      'coupleId': coupleId,
+      'inviteCode': inviteCode,
+      'updatedAt': now,
+    }, userId);
+
     try {
       await FirestoreService.updateUser(userId, {
         'coupleId': coupleId,
         'inviteCode': inviteCode,
         'partner1Id': userId,
-        'anniversaryDate': DateTime.now().toIso8601String().split('T')[0],
+        'anniversaryDate': anniversary,
         'coupleStatus': 'solo',
         'createdAt': now,
         'updatedAt': now,
       });
     } catch (e) {
-      print('Firestore updateUser in _autoCreateCouple failed: $e');
+      print('Firestore updateUser in _createOrRefreshCouple failed: $e');
     }
+
+    if (_currentUser != null) {
       _currentUser = UserModel(
         id: _currentUser!.id,
         name: _currentUser!.name,
@@ -113,49 +93,130 @@ class AuthService {
     }
   }
 
+  static Future<bool> createLocalAccount(String name) async {
+    try {
+      try {
+        await _auth.signInAnonymously();
+      } catch (e) {
+        print('Anonymous auth failed (non-fatal): $e');
+      }
+
+      final existingId = StorageService.getString('current_user_id');
+      if (existingId != null) {
+        final existing = await DatabaseService.getById('users', existingId);
+        if (existing != null) {
+          _currentUser = UserModel.fromMap(existing);
+          _saveUserToStorage();
+          return true;
+        }
+      }
+
+      final id = _auth.currentUser?.uid ?? EncryptionUtils.generateId();
+      final now = DateTime.now().toIso8601String();
+      final user = UserModel(
+        id: id,
+        name: name,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await _storeCurrentUser(user);
+      await _createOrRefreshCouple(id, now);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> registerWithEmail(String name, String email, String password) async {
+    try {
+      final normalizedEmail = email.toLowerCase().trim();
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) return false;
+
+      final now = DateTime.now().toIso8601String();
+      final user = UserModel(
+        id: firebaseUser.uid,
+        name: name,
+        email: normalizedEmail,
+        photoPath: firebaseUser.photoURL,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await FirestoreService.createUser(user.id, user.toMap());
+      await _storeCurrentUser(user);
+      await _createOrRefreshCouple(user.id, now);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> loginWithEmail(String email, String password) async {
     try {
-      // Authenticate with Firebase so Firestore rules pass
-      try {
-        await _auth.signInWithEmailAndPassword(
-          email: email.toLowerCase().trim(),
-          password: password,
-        );
-      } catch (e) {
-        print('Firebase Auth email login failed (non-fatal): $e');
-      }
+      final normalizedEmail = email.toLowerCase().trim();
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
 
-      final firebaseUid = _auth.currentUser?.uid;
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) return false;
+
       final now = DateTime.now().toIso8601String();
-
-      final users = await DatabaseService.query(
+      final localUsers = await DatabaseService.query(
         'users',
         where: 'email = ?',
-        whereArgs: [email.toLowerCase().trim()],
+        whereArgs: [normalizedEmail],
       );
-      if (users.isEmpty) {
-        // Use Firebase UID so Firestore security rules pass
-        final id = firebaseUid ?? EncryptionUtils.generateId();
-        final user = UserModel(
-          id: id,
-          name: email.split('@').first,
-          email: email.toLowerCase().trim(),
-          createdAt: now,
-          updatedAt: now,
-        );
-        await DatabaseService.insert('users', user.toMap());
-        await StorageService.setString('current_user_id', id);
-        _currentUser = user;
-        _saveUserToStorage();
-        await _autoCreateCouple(id, now);
-        return true;
+
+      Map<String, dynamic>? remoteUser;
+      try {
+        remoteUser = await FirestoreService.getUser(firebaseUser.uid);
+      } catch (_) {}
+
+      Map<String, dynamic> chosen = {
+        'id': firebaseUser.uid,
+        'name': firebaseUser.displayName ?? normalizedEmail.split('@').first,
+        'email': normalizedEmail,
+        'photoPath': firebaseUser.photoURL,
+        'createdAt': now,
+        'updatedAt': now,
+      };
+
+      if (localUsers.isNotEmpty && remoteUser != null) {
+        final localUpdated = localUsers.first['updatedAt'] as String? ?? '';
+        final remoteUpdated = remoteUser['updatedAt'] as String? ?? '';
+        chosen = localUpdated.compareTo(remoteUpdated) >= 0 ? localUsers.first : remoteUser;
+      } else if (localUsers.isNotEmpty) {
+        chosen = localUsers.first;
+      } else if (remoteUser != null) {
+        chosen = remoteUser;
       }
-      _currentUser = UserModel.fromMap(users.first);
-      _saveUserToStorage();
-      await StorageService.setString('current_user_id', _currentUser!.id);
-      if (_currentUser!.coupleId == null) {
-        await _autoCreateCouple(_currentUser!.id, now);
+
+      chosen['id'] = firebaseUser.uid;
+      chosen['email'] = normalizedEmail;
+      chosen['photoPath'] = chosen['photoPath'] ?? firebaseUser.photoURL;
+      chosen['updatedAt'] = now;
+
+      final user = UserModel.fromMap(chosen);
+      await _storeCurrentUser(user);
+
+      try {
+        await FirestoreService.updateUser(user.id, user.toMap());
+      } catch (e) {
+        print('Firestore updateUser (login sync) failed: $e');
       }
+
+      if (user.coupleId == null) {
+        await _createOrRefreshCouple(user.id, now);
+      }
+
       return true;
     } catch (e) {
       return false;
@@ -170,7 +231,6 @@ class AuthService {
       String firebaseUid;
 
       if (kIsWeb) {
-        // Web: use Firebase Auth's built-in Google provider (no OAuth client ID needed)
         final googleProvider = GoogleAuthProvider();
         final result = await _auth.signInWithPopup(googleProvider);
         final user = result.user;
@@ -180,87 +240,74 @@ class AuthService {
         displayName = user.displayName;
         photoUrl = user.photoURL;
       } else {
-        // Native: use google_sign_in package
-        final GoogleSignIn googleSignIn = GoogleSignIn();
-        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        final googleSignIn = GoogleSignIn();
+        final googleUser = await googleSignIn.signIn();
         if (googleUser == null) return false;
 
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        final googleAuth = await googleUser.authentication;
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
-        await _auth.signInWithCredential(credential);
-        firebaseUid = _auth.currentUser!.uid;
+        final result = await _auth.signInWithCredential(credential);
+        final user = result.user;
+        if (user == null) return false;
+        firebaseUid = user.uid;
         email = googleUser.email;
         displayName = googleUser.displayName;
         photoUrl = googleUser.photoUrl;
       }
 
-      // First check local DB (has latest profile updates)
-      final localUsers = await DatabaseService.query('users',
-          where: 'email = ?', whereArgs: [email.toLowerCase().trim()]);
-      Map<String, dynamic>? firestoreData;
+      final normalizedEmail = email.toLowerCase().trim();
+      final now = DateTime.now().toIso8601String();
+      final localUsers = await DatabaseService.query(
+        'users',
+        where: 'email = ?',
+        whereArgs: [normalizedEmail],
+      );
+
+      Map<String, dynamic>? remoteUser;
       try {
-        firestoreData = await FirestoreService.getUser(firebaseUid);
+        remoteUser = await FirestoreService.getUser(firebaseUid);
       } catch (_) {}
 
-      Map<String, dynamic> sourceData;
-      if (localUsers.isNotEmpty && firestoreData != null) {
-        // Use whichever was updated more recently
+      Map<String, dynamic> chosen = {
+        'id': firebaseUid,
+        'name': displayName ?? normalizedEmail.split('@').first,
+        'email': normalizedEmail,
+        'photoPath': photoUrl,
+        'createdAt': now,
+        'updatedAt': now,
+      };
+
+      if (localUsers.isNotEmpty && remoteUser != null) {
         final localUpdated = localUsers.first['updatedAt'] as String? ?? '';
-        final remoteUpdated = firestoreData['updatedAt'] as String? ?? '';
-        sourceData = localUpdated.compareTo(remoteUpdated) >= 0
-            ? localUsers.first
-            : firestoreData;
+        final remoteUpdated = remoteUser['updatedAt'] as String? ?? '';
+        chosen = localUpdated.compareTo(remoteUpdated) >= 0 ? localUsers.first : remoteUser;
       } else if (localUsers.isNotEmpty) {
-        sourceData = localUsers.first;
-      } else if (firestoreData != null) {
-        sourceData = firestoreData;
-      } else {
-        sourceData = {};
+        chosen = localUsers.first;
+      } else if (remoteUser != null) {
+        chosen = remoteUser;
       }
 
-      if (sourceData.isNotEmpty) {
-        _currentUser = UserModel.fromMap(sourceData);
-        _saveUserToStorage();
-        await StorageService.setString('current_user_id', _currentUser!.id);
-        // Sync whichever source is newer to the other
-        await DatabaseService.insert('users', _currentUser!.toMap());
-        try {
-          await FirestoreService.updateUser(firebaseUid, {
-            'name': _currentUser!.name,
-            'photoPath': _currentUser!.photoPath,
-            'updatedAt': _currentUser!.updatedAt ?? DateTime.now().toIso8601String(),
-          });
-        } catch (e) {
-          print('Firestore updateUser (sign-in sync) failed: $e');
-        }
-        if (_currentUser!.coupleId == null) {
-          await _autoCreateCouple(_currentUser!.id, DateTime.now().toIso8601String());
-        }
-        return true;
-      }
+      chosen['id'] = firebaseUid;
+      chosen['email'] = normalizedEmail;
+      chosen['photoPath'] = chosen['photoPath'] ?? photoUrl;
+      chosen['updatedAt'] = now;
 
-      final now = DateTime.now().toIso8601String();
-      final user = UserModel(
-        id: firebaseUid,
-        name: displayName ?? 'Partner',
-        email: email,
-        photoPath: photoUrl,
-        createdAt: now,
-        updatedAt: now,
-      );
+      final user = UserModel.fromMap(chosen);
+      await _storeCurrentUser(user);
+
       try {
-        await FirestoreService.createUser(firebaseUid, user.toMap());
+        await FirestoreService.updateUser(user.id, user.toMap());
       } catch (e) {
-        print('Firestore createUser failed: $e');
+        print('Firestore updateUser (google login sync) failed: $e');
       }
-      await DatabaseService.insert('users', user.toMap());
-      _currentUser = user;
-      _saveUserToStorage();
-      await StorageService.setString('current_user_id', firebaseUid);
-      await _autoCreateCouple(firebaseUid, now);
+
+      if (user.coupleId == null) {
+        await _createOrRefreshCouple(user.id, now);
+      }
+
       return true;
     } catch (e) {
       return false;
@@ -271,10 +318,12 @@ class AuthService {
     try {
       final userId = StorageService.getString('current_user_id');
       if (userId == null) return false;
+
       Map<String, dynamic>? userData;
       try {
         userData = await DatabaseService.getById('users', userId);
       } catch (_) {}
+
       if (userData == null) {
         final stored = _loadUserFromStorage();
         if (stored == null) return false;
@@ -282,10 +331,25 @@ class AuthService {
       } else {
         _currentUser = UserModel.fromMap(userData);
       }
+
       _saveUserToStorage();
-      if (_currentUser!.coupleId == null) {
-        await _autoCreateCouple(_currentUser!.id, DateTime.now().toIso8601String());
+
+      if (_currentUser!.email != null) {
+        try {
+          final remote = await FirestoreService.getUser(_currentUser!.id);
+          if (remote != null) {
+            final remoteUser = UserModel.fromMap({
+              ...remote,
+              'id': _currentUser!.id,
+              'email': _currentUser!.email,
+            });
+            _currentUser = remoteUser;
+            _saveUserToStorage();
+            await DatabaseService.insert('users', remoteUser.toMap());
+          }
+        } catch (_) {}
       }
+
       return true;
     } catch (e) {
       return false;
@@ -298,13 +362,15 @@ class AuthService {
     } catch (e) {
       print('Google sign-out failed: $e');
     }
+
     try {
       await _auth.signOut();
     } catch (e) {
       print('Firebase sign-out failed: $e');
     }
+
+    await clearSession();
     _currentUser = null;
-    // Keep current_user_id in storage so account persists across sign-out
   }
 
   static Future<void> clearSession() async {
@@ -315,18 +381,21 @@ class AuthService {
 
   static Future<void> updateProfile(String name, {String? photoPath}) async {
     if (_currentUser == null) return;
+
     final now = DateTime.now().toIso8601String();
     final updates = <String, dynamic>{
       'name': name,
       'updatedAt': now,
     };
     if (photoPath != null) updates['photoPath'] = photoPath;
+
     await DatabaseService.update('users', updates, _currentUser!.id);
     try {
       await FirestoreService.updateUser(_currentUser!.id, updates);
     } catch (e) {
       print('Firestore updateUser (profile) failed: $e');
     }
+
     _currentUser = UserModel(
       id: _currentUser!.id,
       name: name,

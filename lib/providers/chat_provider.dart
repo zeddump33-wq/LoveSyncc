@@ -12,23 +12,27 @@ class ChatProvider extends ChangeNotifier {
   List<MessageModel> _messages = [];
   bool _isLoading = false;
   bool _isSending = false;
+  bool _isPartnerTyping = false;
+  
   StreamSubscription? _messagesSubscription;
+  StreamSubscription? _coupleSubscription;
   final _uuid = const Uuid();
 
   List<MessageModel> get messages => _messages;
   bool get isLoading => _isLoading;
   bool get isSending => _isSending;
+  bool get isPartnerTyping => _isPartnerTyping;
 
   Future<void> loadMessages(String coupleId) async {
     _isLoading = true;
     notifyListeners();
 
-    // Load local first for speed
+    // Load local first for speed, DESC order so index 0 is newest
     final localData = await DatabaseService.query(
       'messages',
       where: 'coupleId = ?',
       whereArgs: [coupleId],
-      orderBy: 'createdAt ASC',
+      orderBy: 'createdAt DESC',
     );
     _messages = localData.map((m) => MessageModel.fromMap(m)).toList();
     _isLoading = false;
@@ -42,15 +46,41 @@ class ChatProvider extends ChangeNotifier {
         final firestoreIds = firestoreMessages.map((m) => m.id).toSet();
         
         // Remove items that exist in both from the local list, keep the incoming firestore version
-        // Because we use client UUIDs, the IDs will match exactly!
         _messages = [
           ..._messages.where((m) => !firestoreIds.contains(m.id)),
           ...firestoreMessages,
-        ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        ]..sort((a, b) => b.createdAt.compareTo(a.createdAt)); // DESC sort
         notifyListeners();
       }, onError: (_) {});
     } catch (e) {
       print('Firestore streamMessages failed: $e');
+    }
+
+    // Listen for typing status
+    _coupleSubscription?.cancel();
+    try {
+      final currentUser = AuthService.currentUser;
+      _coupleSubscription = FirestoreService.streamCouple(coupleId).listen((data) {
+        if (data != null && currentUser != null) {
+          final partnerId = data['partner1Id'] == currentUser.id ? data['partner2Id'] : data['partner1Id'];
+          if (partnerId != null) {
+            final typingStatus = data['typing_$partnerId'] ?? false;
+            if (_isPartnerTyping != typingStatus) {
+              _isPartnerTyping = typingStatus;
+              notifyListeners();
+            }
+          }
+        }
+      });
+    } catch (e) {
+      print('Firestore streamCouple failed: $e');
+    }
+  }
+
+  Future<void> updateTyping(String coupleId, bool isTyping) async {
+    final user = AuthService.currentUser;
+    if (user != null) {
+      await FirestoreService.updateTypingStatus(coupleId, user.id, isTyping);
     }
   }
 
@@ -100,12 +130,15 @@ class ChatProvider extends ChangeNotifier {
       // Save locally first for instant UI feedback
       await DatabaseService.insert('messages', messageModel.toMap());
       if (!_messages.any((m) => m.id == messageId)) {
-        _messages.add(messageModel);
+        _messages.insert(0, messageModel); // Insert at 0 because it's DESC
         notifyListeners();
       }
 
       // Send to Firestore
       await FirestoreService.sendMessage(coupleId, messageData);
+      
+      // Stop typing
+      await updateTyping(coupleId, false);
     } catch (e) {
       print('Firestore sendMessage failed: $e');
     } finally {
@@ -115,14 +148,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> sendImage(String coupleId, String imagePath) async {
-    // 1. Upload to external service first
     final remoteUrl = await ImageUploadService.uploadImage(imagePath);
     if (remoteUrl != null) {
-      // 2. Send message with the remote URL
       await sendMessage(coupleId: coupleId, imagePath: remoteUrl, type: 'image');
     } else {
       print('Failed to upload image. Cannot send.');
-      // Optional: show a snackbar or error state
     }
   }
 
@@ -137,7 +167,10 @@ class ChatProvider extends ChangeNotifier {
   void clear() {
     _messagesSubscription?.cancel();
     _messagesSubscription = null;
+    _coupleSubscription?.cancel();
+    _coupleSubscription = null;
     _messages = [];
+    _isPartnerTyping = false;
     notifyListeners();
   }
 

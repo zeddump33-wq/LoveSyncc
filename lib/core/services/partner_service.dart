@@ -136,53 +136,13 @@ class PartnerService {
 
       final code = inviteCode.toUpperCase();
 
-      // Look up invite code via users collection (readable by any authenticated user)
       Map<String, dynamic>? sourceData;
       try {
-        final userDoc = await FirestoreService.getUserByInviteCode(code);
-        if (userDoc != null) {
-          final foundCoupleId = userDoc['coupleId'] as String?;
-          final coupleStatus = userDoc['coupleStatus'] as String?;
-          if (foundCoupleId != null && (coupleStatus == 'pending' || coupleStatus == 'solo')) {
-            // Try local DB first
-            sourceData = await DatabaseService.getById('couples', foundCoupleId);
-            if (sourceData == null) {
-              // Try reading couple doc from Firestore (may fail if not member)
-              try {
-                sourceData = await FirestoreService.getCouple(foundCoupleId);
-              } catch (e) {
-                print('Firestore getCouple failed: $e');
-              }
-            }
-            // Construct from user doc if couple doc is not readable
-            if (sourceData == null) {
-              sourceData = {
-                'id': foundCoupleId,
-                'partner1Id': userDoc['partner1Id'] ?? userDoc['id'],
-                'partner2Id': null,
-                'anniversaryDate': userDoc['anniversaryDate'],
-                'status': 'pending',
-                'inviteCode': code,
-                'createdAt': userDoc['createdAt'] ?? DateTime.now().toIso8601String(),
-                'updatedAt': userDoc['updatedAt'] ?? DateTime.now().toIso8601String(),
-              };
-            }
-          }
-        }
+        sourceData = await FirestoreService.getCoupleByInviteCode(code);
       } catch (e) {
-        print('User-based invite lookup failed: $e');
+        print('Couple-based invite lookup failed: $e');
       }
 
-      // Fallback: try couples collection directly (if rules allow)
-      if (sourceData == null) {
-        try {
-          sourceData = await FirestoreService.getCoupleByInviteCode(code);
-        } catch (e) {
-          print('Couple-based invite lookup failed: $e');
-        }
-      }
-
-      // Final fallback: local DB (same-device testing)
       if (sourceData == null) {
         sourceData = await DatabaseService.getByField('couples', 'inviteCode', code);
       }
@@ -272,21 +232,6 @@ class PartnerService {
       data = await DatabaseService.getById('couples', coupleId);
     }
     if (data == null) return null;
-
-    // If couple doc has no partner2, check users collection for a join
-    if (data['partner2Id'] == null || data['status'] == 'pending' || data['status'] == 'solo') {
-      try {
-        final partner1Id = data['partner1Id'] as String?;
-        if (partner1Id != null) {
-          final joined = await FirestoreService.getJoiningPartner(coupleId, partner1Id);
-          if (joined != null) {
-            data['partner2Id'] = joined['id'];
-            data['status'] = 'active';
-            return CoupleModel.fromMap(data);
-          }
-        }
-      } catch (_) {}
-    }
 
     return CoupleModel.fromMap(data);
   }

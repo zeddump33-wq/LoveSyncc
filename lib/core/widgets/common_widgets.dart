@@ -90,8 +90,8 @@ class AvatarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (photoPath != null) {
-      if (kIsWeb) {
+    if (photoPath != null && photoPath!.isNotEmpty) {
+      if (photoPath!.startsWith('http')) {
         return ClipOval(
           child: Image.network(
             photoPath!,
@@ -101,16 +101,17 @@ class AvatarWidget extends StatelessWidget {
             errorBuilder: (_, __, ___) => _buildInitials(),
           ),
         );
+      } else if (!kIsWeb) {
+        return ClipOval(
+          child: platformImageWidget(
+            photoPath!,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildInitials(),
+          ),
+        );
       }
-      return ClipOval(
-        child: platformImageWidget(
-          photoPath!,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildInitials(),
-        ),
-      );
     }
     return _buildInitials();
   }

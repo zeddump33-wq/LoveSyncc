@@ -5,11 +5,24 @@ class FirestoreService {
 
   // --- Couples ---
   static Future<Map<String, dynamic>?> getCoupleByInviteCode(String code) async {
-    final snap = await _db
+    // Check pending first to satisfy strict Firestore rules
+    var snap = await _db
         .collection('couples')
         .where('inviteCode', isEqualTo: code.toUpperCase())
+        .where('status', isEqualTo: 'pending')
         .limit(1)
         .get();
+        
+    if (snap.docs.isEmpty) {
+      // Fallback to solo
+      snap = await _db
+          .collection('couples')
+          .where('inviteCode', isEqualTo: code.toUpperCase())
+          .where('status', isEqualTo: 'solo')
+          .limit(1)
+          .get();
+    }
+    
     if (snap.docs.isEmpty) return null;
     final data = snap.docs.first.data();
     data['id'] = snap.docs.first.id;
@@ -34,6 +47,21 @@ class FirestoreService {
 
   static Future<void> deleteCouple(String id) async {
     await _db.collection('couples').doc(id).delete();
+  }
+
+  static Future<void> updateTypingStatus(String coupleId, String userId, bool isTyping) async {
+    await _db.collection('couples').doc(coupleId).set({
+      'typing_$userId': isTyping,
+    }, SetOptions(merge: true));
+  }
+
+  static Stream<Map<String, dynamic>?> streamCouple(String coupleId) {
+    return _db.collection('couples').doc(coupleId).snapshots().map((snap) {
+      if (!snap.exists) return null;
+      final data = snap.data()!;
+      data['id'] = snap.id;
+      return data;
+    });
   }
 
   // --- Users ---

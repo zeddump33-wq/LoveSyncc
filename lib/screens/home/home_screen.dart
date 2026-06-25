@@ -335,37 +335,50 @@ class _DashboardScreen extends StatelessWidget {
             );
           },
         ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            childAspectRatio: 0.85,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
-          itemCount: actions.length,
-          itemBuilder: (_, i) => GestureDetector(
-            onTap: () => Navigator.pushNamed(context, actions[i].route),
-            child: GlassCard(
-              padding: const EdgeInsets.all(8),
-              borderRadius: 16,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(actions[i].icon, color: ThemeConstants.primaryColor, size: 26),
-                  const SizedBox(height: 4),
-                  Text(
-                    actions[i].label,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final crossAxisCount = width >= 1100
+                ? 6
+                : width >= 900
+                    ? 5
+                    : width >= 600
+                        ? 4
+                        : 2;
+
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                childAspectRatio: width >= 900 ? 1 : 0.88,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
               ),
-            ),
-          ),
+              itemCount: actions.length,
+              itemBuilder: (_, i) => GestureDetector(
+                onTap: () => Navigator.pushNamed(context, actions[i].route),
+                child: GlassCard(
+                  padding: const EdgeInsets.all(8),
+                  borderRadius: 16,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(actions[i].icon, color: ThemeConstants.primaryColor, size: 26),
+                      const SizedBox(height: 4),
+                      Text(
+                        actions[i].label,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ],
     );

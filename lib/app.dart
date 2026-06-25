@@ -1,27 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import 'core/widgets/responsive_shell.dart';
+import 'models/memory_model.dart';
 import 'providers/theme_provider.dart';
-import 'screens/splash/splash_screen.dart';
-import 'screens/onboarding/onboarding_screen.dart';
+import 'screens/auth/local_account_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
-import 'screens/auth/local_account_screen.dart';
-import 'screens/home/home_screen.dart';
-import 'screens/chat/chat_screen.dart';
 import 'screens/calendar/calendar_screen.dart';
-import 'screens/memories/memories_screen.dart';
-import 'screens/memories/memory_detail_screen.dart';
-import 'screens/goals/goals_screen.dart';
+import 'screens/chat/chat_screen.dart';
+import 'screens/checkin/checkin_screen.dart';
 import 'screens/games/games_screen.dart';
-import 'screens/wishlist/wishlist_screen.dart';
+import 'screens/goals/goals_screen.dart';
+import 'screens/home/home_screen.dart';
 import 'screens/love_notes/love_notes_screen.dart';
 import 'screens/love_notes/note_editor_screen.dart';
-import 'screens/checkin/checkin_screen.dart';
-import 'screens/profile/profile_screen.dart';
-import 'screens/profile/partner_linking_screen.dart';
+import 'screens/memories/memories_screen.dart';
+import 'screens/memories/memory_detail_screen.dart';
 import 'screens/milestones/milestones_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
+import 'screens/profile/partner_linking_screen.dart';
+import 'screens/profile/profile_screen.dart';
+import 'screens/splash/splash_screen.dart';
 import 'screens/statistics/statistics_screen.dart';
-import 'models/memory_model.dart';
+import 'screens/wishlist/wishlist_screen.dart';
 
 class LoveSyncApp extends StatelessWidget {
   const LoveSyncApp({super.key});
@@ -35,6 +37,21 @@ class LoveSyncApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: themeProvider.theme,
           initialRoute: '/',
+          builder: (context, child) {
+            final body = child ?? const SizedBox.shrink();
+            return ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: SafeArea(
+                top: false,
+                bottom: false,
+                child: ResponsiveShell(
+                  maxContentWidth: 1280,
+                  padding: EdgeInsets.zero,
+                  child: body,
+                ),
+              ),
+            );
+          },
           onGenerateRoute: (settings) {
             switch (settings.name) {
               case '/':

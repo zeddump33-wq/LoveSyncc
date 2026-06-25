@@ -117,16 +117,17 @@ class AvatarWidget extends StatelessWidget {
   }
 
   Widget _buildInitials() {
-    final initials = name.isNotEmpty
-        ? name.split(' ').map((n) => n[0]).take(2).join().toUpperCase()
+    final nameParts = name.trim().split(' ').where((n) => n.isNotEmpty).toList();
+    final initials = nameParts.isNotEmpty
+        ? nameParts.take(2).map((n) => n[0]).join().toUpperCase()
         : '?';
 
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           colors: [ThemeConstants.primaryColor, ThemeConstants.secondaryColor],
         ),
       ),

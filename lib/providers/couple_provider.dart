@@ -12,6 +12,8 @@ class CoupleProvider extends ChangeNotifier {
   List<UserModel> _members = [];
   List<MilestoneModel> _milestones = [];
   bool _isLoading = false;
+  bool _isAddingMilestone = false;
+  bool _isAutoCreating = false;
   StreamSubscription? _milestonesSubscription;
 
   CoupleModel? get couple => _couple;
@@ -64,34 +66,49 @@ class CoupleProvider extends ChangeNotifier {
   }
 
   Future<void> addMilestone(MilestoneModel milestone) async {
-    await DatabaseService.insert('milestones', milestone.toMap());
+    if (_isAddingMilestone) return;
+    _isAddingMilestone = true;
+
     try {
-      await FirestoreService.addMilestone(_couple!.id, milestone.toMap());
-    } catch (e) {
-      print('Firestore addMilestone failed: $e');
+      await DatabaseService.insert('milestones', milestone.toMap());
+      try {
+        await FirestoreService.addMilestone(_couple!.id, milestone.toMap());
+      } catch (e) {
+        print('Firestore addMilestone failed: $e');
+      }
+      _milestones.add(milestone);
+      notifyListeners();
+    } finally {
+      _isAddingMilestone = false;
     }
-    _milestones.add(milestone);
-    notifyListeners();
   }
 
-  void _loadMilestones(String coupleId) {
+  Future<void> _loadMilestones(String coupleId) async {
     // Load local first for speed
-    DatabaseService.query(
-      'milestones',
-      where: 'coupleId = ?',
-      whereArgs: [coupleId],
-      orderBy: 'date DESC',
-    ).then((data) {
+    try {
+      final data = await DatabaseService.query(
+        'milestones',
+        where: 'coupleId = ?',
+        whereArgs: [coupleId],
+        orderBy: 'date DESC',
+      );
       _milestones = data.map((m) => MilestoneModel.fromMap(m)).toList();
       notifyListeners();
-      _autoCreateMissingMilestones(coupleId);
-    });
+      await _autoCreateMissingMilestones(coupleId);
+    } catch (e) {
+      print('Local milestone load failed: $e');
+    }
 
     // Listen for real-time updates from Firestore
     _milestonesSubscription?.cancel();
     try {
       _milestonesSubscription = FirestoreService.streamMilestones(coupleId).listen((data) {
-        _milestones = data.map((m) => MilestoneModel.fromMap(m)).toList();
+        final firestoreMilestones = data.map((m) => MilestoneModel.fromMap(m)).toList();
+        final firestoreIds = firestoreMilestones.map((m) => m.id).toSet();
+        _milestones = [
+          ..._milestones.where((m) => !firestoreIds.contains(m.id)),
+          ...firestoreMilestones,
+        ]..sort((a, b) => b.date.compareTo(a.date));
         notifyListeners();
       }, onError: (_) {});
     } catch (e) {
@@ -100,12 +117,17 @@ class CoupleProvider extends ChangeNotifier {
   }
 
   Future<void> _autoCreateMissingMilestones(String coupleId) async {
+    if (_isAutoCreating) return;
     if (_couple?.anniversaryDate == null) return;
-    final anniv = DateTime.parse(_couple!.anniversaryDate!);
-    final now = DateTime.now();
-    final existingTitles = _milestones.map((m) => m.title).toSet();
+    _isAutoCreating = true;
 
-    final milestonesToCreate = <Map<String, String?>>[];
+    try {
+      final anniv = DateTime.parse(_couple!.anniversaryDate!);
+      final now = DateTime.now();
+      final existingTitles = _milestones.map((m) => m.title).toSet();
+
+      final milestonesToCreate = <Map<String, String?>>[];
+
     for (int month = 1; month <= 12; month++) {
       final milestoneDate = DateTime(anniv.year, anniv.month + month, anniv.day);
       if (milestoneDate.isAfter(now)) break;
@@ -171,6 +193,9 @@ class CoupleProvider extends ChangeNotifier {
       _milestones.add(milestone);
     }
     if (milestonesToCreate.isNotEmpty) notifyListeners();
+    } finally {
+      _isAutoCreating = false;
+    }
   }
 
   Future<void> unlinkPartner() async {

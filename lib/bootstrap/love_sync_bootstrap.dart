@@ -55,10 +55,10 @@ class LoveSyncBootstrap {
       ),
     );
 
-    await Future.wait([
+    await Future.wait<dynamic>([
       DatabaseService.ensureInitialized().timeout(const Duration(seconds: 10)),
       HiveService.init().timeout(const Duration(seconds: 5)),
-      NotificationService.init().timeout(const Duration(seconds: 5)),
+      NotificationService.initialize().timeout(const Duration(seconds: 5)),
     ]).catchError((_) {});
   }
 }

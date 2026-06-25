@@ -10,6 +10,7 @@ class MemoriesProvider extends ChangeNotifier {
   List<MemoryModel> _memories = [];
   List<MemoryAlbumModel> _albums = [];
   bool _isLoading = false;
+  bool _isToggling = false;
   StreamSubscription? _memoriesSubscription;
   final _uuid = const Uuid();
 
@@ -111,13 +112,25 @@ class MemoriesProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String id) async {
-    final index = _memories.indexWhere((m) => m.id == id);
-    if (index != -1) {
-      final newValue = _memories[index].isFavorite == 0 ? 1 : 0;
-      await DatabaseService.update('memories', {'isFavorite': newValue}, id);
-      _memories[index] = MemoryModel.fromMap({..._memories[index].toMap(), 'isFavorite': newValue});
-      notifyListeners();
-      // Should also sync favorite status to Firestore
+    if (_isToggling) return;
+    _isToggling = true;
+
+    try {
+      final index = _memories.indexWhere((m) => m.id == id);
+      if (index != -1) {
+        final newValue = _memories[index].isFavorite == 0 ? 1 : 0;
+        await DatabaseService.update('memories', {'isFavorite': newValue}, id);
+        _memories[index] = MemoryModel.fromMap({..._memories[index].toMap(), 'isFavorite': newValue});
+        notifyListeners();
+
+        try {
+          await FirestoreService.addMemory(_memories[index].coupleId, _memories[index].toMap());
+        } catch (e) {
+          print('Firestore sync toggleFavorite failed: $e');
+        }
+      }
+    } finally {
+      _isToggling = false;
     }
   }
 

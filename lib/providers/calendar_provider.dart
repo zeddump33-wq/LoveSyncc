@@ -64,7 +64,6 @@ class CalendarProvider extends ChangeNotifier {
       coupleId: event.coupleId,
       title: event.title,
       date: event.date,
-      time: event.time,
       description: event.description,
       type: event.type,
       createdAt: event.createdAt,

@@ -7,6 +7,7 @@ import '../models/love_note_model.dart';
 class LoveNotesProvider extends ChangeNotifier {
   List<LoveNoteModel> _notes = [];
   bool _isLoading = false;
+  bool _isToggling = false;
   StreamSubscription? _notesSubscription;
 
   List<LoveNoteModel> get notes => _notes;
@@ -77,23 +78,36 @@ class LoveNotesProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String id) async {
-    final index = _notes.indexWhere((n) => n.id == id);
-    if (index != -1) {
-      final newValue = _notes[index].isFavorite == 0 ? 1 : 0;
-      await DatabaseService.update('love_notes', {'isFavorite': newValue}, id);
-      _notes[index] = LoveNoteModel(
-        id: _notes[index].id,
-        coupleId: _notes[index].coupleId,
-        senderId: _notes[index].senderId,
-        title: _notes[index].title,
-        content: _notes[index].content,
-        type: _notes[index].type,
-        scheduledDate: _notes[index].scheduledDate,
-        isDelivered: _notes[index].isDelivered,
-        isFavorite: newValue,
-        createdAt: _notes[index].createdAt,
-      );
-      notifyListeners();
+    if (_isToggling) return;
+    _isToggling = true;
+
+    try {
+      final index = _notes.indexWhere((n) => n.id == id);
+      if (index != -1) {
+        final newValue = _notes[index].isFavorite == 0 ? 1 : 0;
+        await DatabaseService.update('love_notes', {'isFavorite': newValue}, id);
+        _notes[index] = LoveNoteModel(
+          id: _notes[index].id,
+          coupleId: _notes[index].coupleId,
+          senderId: _notes[index].senderId,
+          title: _notes[index].title,
+          content: _notes[index].content,
+          type: _notes[index].type,
+          scheduledDate: _notes[index].scheduledDate,
+          isDelivered: _notes[index].isDelivered,
+          isFavorite: newValue,
+          createdAt: _notes[index].createdAt,
+        );
+        notifyListeners();
+
+        try {
+          await FirestoreService.updateNote(_notes[index].coupleId, id, {'isFavorite': newValue});
+        } catch (e) {
+          print('Firestore updateNote toggleFavorite failed: $e');
+        }
+      }
+    } finally {
+      _isToggling = false;
     }
   }
 
